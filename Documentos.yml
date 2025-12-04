@@ -1,0 +1,169 @@
+# Serviços de Documentos
+
+# Variaveis de ambiente
+
+# DOMAIN=exemplo.com.br
+# TZ=America/Sao_Paulo
+
+# BLINKO_DB_HOST=10.10.1.50
+# BLINKO_DB_DATABASE=blinko
+# BLINKO_DB_USER=blinko
+# BLINKO_DB_PASSWORD=blinko
+# BLINKO_SECRET=segredo_blinko
+
+# EBK_DB_HOST=10.10.1.50
+# EBK_DB_DATABASE=ezbookkeeping
+# EBK_DB_USER=ezbookkeeping
+# EBK_DB_PASSWORD=ezbookkeeping
+# EBK_SECRET=segredo_ebk
+
+# EBK_AI_URL=http://10.10.2.110:11434
+# EBK_AI_MODEL=gemma3:4b
+
+services:
+  blinko:
+    image: blinkospace/blinko:latest
+    container_name: blinko
+    environment:
+      NODE_ENV: production
+      NEXTAUTH_URL: https://notas.${DOMAIN}
+      NEXT_PUBLIC_BASE_URL: https://notas.${DOMAIN}
+      NEXTAUTH_SECRET: ${BLINKO_SECRET}
+      DATABASE_URL: "postgresql://${BLINKO_DB_USER}:${BLINKO_DB_PASSWORD}@${BLINKO_DB_HOST}:5432/${BLINKO_DB_DATABASE}"
+    volumes:
+      - ./data/blinko:/app/.blinko
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # ports:
+    #   - 1111:1111
+    networks:
+      local:
+        ipv4_address: 10.10.1.22
+    restart: unless-stopped
+    # Comente o healthcheck até o traefik criar o cert, depois descomente
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://blinko:1111/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.blinko_not_ssl.rule=Host(`notas.${DOMAIN}`)
+      - traefik.http.routers.blinko_not_ssl.entrypoints=web
+      # MIDDLEWARE
+      - traefik.http.middlewares.blinko_redirect_ssl.redirectscheme.scheme=https
+      - traefik.http.routers.blinko_not_ssl.middlewares=blinko_redirect_ssl
+      # ROTA COM SSL
+      - traefik.http.routers.blinko.rule=Host(`notas.${DOMAIN}`)
+      - traefik.http.routers.blinko.entrypoints=websecure
+      - traefik.http.routers.blinko.tls.certresolver=le
+      - traefik.http.routers.blinko.service=blinko
+      - traefik.http.services.blinko.loadbalancer.server.port=1111
+
+  ezbookkeeping:
+    image: mayswind/ezbookkeeping
+    container_name: ezbookkeeping
+    hostname: "ezbookkeeping"
+    environment:
+      EBK_SERVER_DOMAIN: dinheiro.${DOMAIN}
+      EBK_SERVER_HTTP_PORT: 80
+      EBK_SERVER_ENABLE_GZIP: true
+      EBK_DATABASE_TYPE: postgres
+      # EBK_DATABASE_HOST: "postgresql://${EBK_DB_USER}:${EBK_DB_PASSWORD}@${EBK_DB_HOST}:5432/${EBK_DB_DATABASE}"
+      EBK_DATABASE_HOST: "${EBK_DB_HOST}:5432"
+      EBK_DATABASE_NAME: ${EBK_DB_DATABASE}
+      EBK_DATABASE_USER: ${EBK_DB_USER}
+      EBK_DATABASE_PASSWD: ${EBK_DB_PASSWORD}
+      EBK_SECURITY_SECRET_KEY: ${EBK_SECRET}
+      # IA de reconhecimento de imagem
+      EBK_LLM_TRANSACTION_FROM_AI_IMAGE_RECOGNITION: true
+      EBK_LLM_IMAGE_RECOGNITION_LLM_PROVIDER: ollama #google_ai
+      EBK_LLM_IMAGE_RECOGNITION_OLLAMA_SERVER_URL: ${EBK_AI_URL} #10.10.2.110:11434 # ollama_server_url
+      EBK_LLM_IMAGE_RECOGNITION_OLLAMA_MODEL_ID: ${EBK_AI_MODEL} #gemma3:4b # ollama_model_id
+      # EBK_LLM_IMAGE_RECOGNITION_GOOGLE_AI_API_KEY: # google_ai_api_key
+      # EBK_LLM_IMAGE_RECOGNITION_GOOGLE_AI_MODEL_ID: # google_ai_model_id
+      EBK_LOG_MODE: console file
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "./data/ezbookkeeping/storage:/ezbookkeeping/storage"
+      - "./data/ezbookkeeping/log:/ezbookkeeping/log"
+    # ports:
+    #   - "8080:8080"
+    networks:
+      local:
+        ipv4_address: 10.10.1.23
+    restart: unless-stopped
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.ezbook_not_ssl.rule=Host(`dinheiro.${DOMAIN}`)
+      - traefik.http.routers.ezbook_not_ssl.entrypoints=web
+      # MIDDLEWARE
+      - traefik.http.middlewares.ezbook_redirect_ssl.redirectscheme.scheme=https
+      - traefik.http.routers.ezbook_not_ssl.middlewares=ezbook_redirect_ssl
+      # ROTA COM SSL
+      - traefik.http.routers.ezbook.rule=Host(`dinheiro.${DOMAIN}`)
+      - traefik.http.routers.ezbook.entrypoints=websecure
+      - traefik.http.routers.ezbook.tls.certresolver=le
+      - traefik.http.routers.ezbook.service=ezbook
+      - traefik.http.services.ezbook.loadbalancer.server.port=80
+
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:latest
+    container_name: stirling-pdf
+    environment:
+      TZ: ${TZ}
+      DISABLE_ADDITIONAL_FEATURES: false
+      LANGS: pt_BR
+      # SERVER_PORT: 80
+      SYSTEM_DEFAULTLOCALE: pt-BR
+      SYSTEM_ENABLEANALYTICS: false
+      SYSTEM_SHOWUPDATE: true
+      SYSTEM_SHOWUPDATEONLYADMIN: true
+      METRICS_ENABLED: true
+      # UI_APPNAME: ""
+      # UI_HOMEDESCRIPTION: ""
+      # UI_APPNAMENAVBAR: ""
+    volumes:
+      - ./data/StirlingPDF/trainingData:/usr/share/tessdata # Necessário para idiomas extras de OCR
+      - ./data/StirlingPDF/extraConfigs:/configs
+      - ./data/StirlingPDF/customFiles:/customFiles/
+      - ./data/StirlingPDF/logs:/logs/
+      - ./data/StirlingPDF/pipeline:/pipeline/
+    # ports:
+    #   - '8080:8080'
+    networks:
+      local:
+        ipv4_address: 10.10.1.24
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://stirling-pdf:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.stirlingpdf_not_ssl.rule=Host(`pdf.${DOMAIN}`)
+      - traefik.http.routers.stirlingpdf_not_ssl.entrypoints=web
+      # Redirecionamento HTTP → HTTPS
+      - traefik.http.middlewares.stirlingpdf-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.stirlingpdf_not_ssl.middlewares=stirlingpdf-https-redirect
+      # Rotas HTTPS
+      - traefik.http.routers.stirlingpdf.rule=Host(`pdf.${DOMAIN}`)
+      - traefik.http.routers.stirlingpdf.entrypoints=websecure
+      - traefik.http.routers.stirlingpdf.tls.certresolver=le
+      - traefik.http.routers.stirlingpdf.service=stirlingpdf
+      - traefik.http.services.stirlingpdf.loadbalancer.server.port=8080
+
+networks:
+  local:
+    external: true
+

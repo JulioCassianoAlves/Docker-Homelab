@@ -1,0 +1,120 @@
+# Serviços de Documentos
+
+# Variaveis de ambiente
+
+# DOMAIN=exemplo.com.br
+# TZ=America/Sao_Paulo
+
+# DELUGE_FOLDER=/caminho/para/downloads
+
+services:
+  deluge:
+    image: linuxserver/deluge
+    container_name: deluge
+    environment:
+      - PUID=1000 # ID do Usuário (ajuste conforme necessário)
+      - PGID=1000 # ID do Grupo (ajuste conforme necessário)
+      - TZ=${TZ} # Fuso horário (ajuste conforme necessário)
+      # - DELUGE_WEB_PORT=80 # Porta da interface web do Deluge
+    volumes:
+      - ./data/deluge/config:/config # Arquivos de configuração
+      - ${DELUGE_FOLDER}:/downloads # Diretório de downloads
+    # ports:
+    # - 8112:8112 # Interface Web
+    # - 6881:6881 # Porta de entrada do Deluge (TCP)
+    # - 6881:6881/udp # Porta de entrada do Deluge (UDP)
+    networks:
+      local:
+        ipv4_address: 10.10.1.30
+    restart: unless-stopped
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.deluge_not_ssl.rule=Host(`deluge.${DOMAIN}`)
+      - traefik.http.routers.deluge_not_ssl.entrypoints=web
+      # Redirecionamento HTTP → HTTPS
+      - traefik.http.middlewares.deluge-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.deluge_not_ssl.middlewares=deluge-https-redirect
+      # Rotas HTTPS
+      - traefik.http.routers.deluge.rule=Host(`deluge.${DOMAIN}`)
+      - traefik.http.routers.deluge.entrypoints=websecure
+      - traefik.http.routers.deluge.tls.certresolver=le
+      - traefik.http.routers.deluge.service=deluge
+      - traefik.http.services.deluge.loadbalancer.server.port=8112
+
+  librespeed:
+    container_name: librespeed
+    image: ghcr.io/librespeed/speedtest:latest
+    environment:
+      WEBPORT: 80
+      TITLE: "VROM VROM"
+      TELEMETRY: "true" # Salvar os testes
+      DB_TYPE: "sqlite"
+      TZ: ${TZ}
+      #ENABLE_ID_OBFUSCATION: "false"
+      #REDACT_IP_ADDRESSES: "false"
+      #PASSWORD:
+      #EMAIL:
+      #DISABLE_IPINFO: "false"
+      #IPINFO_APIKEY: "sua api key"
+      #DISTANCE: "km"
+    volumes:
+      - ./data/librespeed:/database # Arquivos de configuração
+    networks:
+      local:
+        ipv4_address: 10.10.1.31
+    restart: unless-stopped
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.speed_not_ssl.rule=Host(`speed.${DOMAIN}`)
+      - traefik.http.routers.speed_not_ssl.entrypoints=web
+      # Redirecionamento HTTP → HTTPS
+      - traefik.http.middlewares.speed-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.speed_not_ssl.middlewares=speed-https-redirect
+      # Rotas HTTPS
+      - traefik.http.routers.speed.rule=Host(`speed.${DOMAIN}`)
+      - traefik.http.routers.speed.entrypoints=websecure
+      - traefik.http.routers.speed.tls.certresolver=le
+      - traefik.http.routers.speed.service=speed
+      - traefik.http.services.speed.loadbalancer.server.port=80
+
+  pairdrop:
+    image: "lscr.io/linuxserver/pairdrop:latest"
+    container_name: pairdrop
+    restart: unless-stopped
+    environment:
+      - PUID=1000 # UID para rodar a aplicação
+      - PGID=1000 # GID para rodar a aplicação
+      - WS_FALLBACK=true # Defina como true para habilitar fallback de websocket se a conexão WebRTC peer to peer não estiver disponível.
+      - RATE_LIMIT=false # Defina como true para limitar clientes a 1000 requisições por 5 min.
+      - RTC_CONFIG=false # Defina o caminho de um arquivo que especifica os servidores STUN/TURN.
+      - DEBUG_MODE=false # Defina como true para depurar container e conexões peer.
+      - TZ=${TZ} # Fuso Horário
+    # ports:
+    # - "127.0.0.1:3000:3000" # Interface Web. Mude o número da porta antes dos últimos dois pontos ex: `127.0.0.1:9000:3000`
+    networks:
+      local:
+        ipv4_address: 10.10.1.32
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.drop_not_ssl.rule=Host(`drop.${DOMAIN}`)
+      - traefik.http.routers.drop_not_ssl.entrypoints=web
+      # Redirecionamento HTTP → HTTPS
+      - traefik.http.middlewares.drop-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.drop_not_ssl.middlewares=drop-https-redirect
+      # Rotas HTTPS
+      - traefik.http.routers.drop.rule=Host(`drop.${DOMAIN}`)
+      - traefik.http.routers.drop.entrypoints=websecure
+      - traefik.http.routers.drop.tls.certresolver=le
+      - traefik.http.routers.drop.service=drop
+      - traefik.http.services.drop.loadbalancer.server.port=3000
+
+networks:
+  local:
+    external: true
+

@@ -1,0 +1,171 @@
+# Principais serviços
+
+# Variaveis de ambiente
+
+# TZ=America/Sao_Paulo
+# DOMAIN=exemplo.com.br
+# CF_DNS_API_TOKEN=token_cloudflare
+# TS_AUTH_KEY=chave_tailscale
+# TS_ROUTES=10.10.0.0/22
+
+# SB_USER=usuario
+# SB_PASSWORD=Senha
+# SB_PERMISSIONS=true
+# SB_NAME=Coisas
+# SB_DIRECTORY=/caminho/para/compartilhar
+# SB_BROWSABLE=no
+# SB_READONLY=no
+# SB_GUEST=no
+
+services:
+  tailscale:
+    hostname: TortinhaVPN # Nome que aparece no Tailscale
+    container_name: tailscale
+    image: tailscale/tailscale:latest
+    environment:
+      - TS_AUTHKEY=${TS_AUTH_KEY}
+      - TS_ROUTES=${TS_ROUTES} # 10.10.0.0/22
+      - TS_EXTRA_ARGS=--accept-routes --advertise-exit-node
+    volumes:
+      - ./data/tailscale:/var/lib
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # networks:
+    #   local:
+    #     ipv4_address: 10.10.1.2
+    network_mode: host
+    cap_add:
+      - net_admin
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.5.3 # Versão fixa para não da problema
+    container_name: traefik
+    command:
+      # Entrada HTTP/HTTPS
+      - "--entrypoints.web.address=:80" # http
+      - "--entrypoints.websecure.address=:443" # https
+      # Providers
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false" # não expõe tudo
+      # ACME (Let’s Encrypt)
+      # DNS‑01 challenge usando Cloudflare
+      - "--certificatesresolvers.le.acme.dnschallenge=true"
+      - "--certificatesresolvers.le.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.le.acme.email=contato@${DOMAIN}" # seu e‑mail
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      # Logging / outros
+      - "--log.level=DEBUG" # Tem informações mais uteis no log, normal tem literalmente nada
+      - "--api.dashboard=false"
+      - "--api.insecure=false"
+      # - "--metrics.prometheus=true"
+      # Configure Prometheus histogram buckets
+      # - "--metrics.prometheus.buckets=0.1,0.3,1.2,5.0"
+      # Check for newer Traefik versions and optionally log that info
+      - "--global.checknewversion=true"
+      # Disable sending anonymous usage data to the Traefik maintainers
+      - "--global.sendanonymoususage=false"
+    environment:
+      # token do Cloudflare (para o desafio DNS‑01)
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro" # para detectar labels
+      - "./data/traefik/letsencrypt:/letsencrypt" # guarda os certs
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      local:
+        ipv4_address: 10.10.1.2
+    restart: unless-stopped
+
+  cloudflared: # Usado como proxy DNS
+    container_name: cloudflared-pihole
+    image: cloudflare/cloudflared:latest
+    command: proxy-dns --port 53 --address 0.0.0.0
+    networks:
+      local:
+        ipv4_address: 10.10.1.3
+    restart: unless-stopped
+
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    environment:
+      TZ: ${TZ}
+      FTLCONF_dns_upstreams: 10.10.1.3 #cloudflared#53
+      FTLCONF_webserver_domain: dns.${DOMAIN}
+      # FTLCONF_webserver_api_password: "123" # REMOVER
+    volumes:
+      - "./data/pihole/:/etc/pihole/"
+      - "./data/pihole/dnsmasq.d:/etc/dnsmasq.d"
+    dns:
+      - 10.10.1.3 #cloudflared:53
+    networks:
+      local:
+        ipv4_address: 10.10.1.4
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - cloudflared
+    restart: unless-stopped
+    healthcheck:
+      test: dig @10.10.1.4 pi.hole
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.pihole_not_ssl.rule=Host(`dns.${DOMAIN}`)
+      - traefik.http.routers.pihole_not_ssl.entrypoints=web
+      # Redirecionamento HTTP → HTTPS
+      - traefik.http.middlewares.pihole-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.pihole_not_ssl.middlewares=pihole-https-redirect
+      # Rotas HTTPS
+      - traefik.http.routers.pihole.rule=Host(`dns.${DOMAIN}`)
+      - traefik.http.routers.pihole.entrypoints=websecure
+      - traefik.http.routers.pihole.tls.certresolver=le
+      - traefik.http.routers.pihole.service=pihole
+      - traefik.http.services.pihole.loadbalancer.server.port=80
+
+  samba:
+    image: dperson/samba:latest
+    container_name: samba
+    environment:
+      - USER=${SB_USER};${SB_PASSWORD}
+      - PERMISSIONS=${SB_PERMISSIONS}
+      - SHARE=${SB_NAME};/share;${SB_BROWSABLE};${SB_READONLY};${SB_GUEST};${SB_USER}
+    volumes:
+      - "${SB_DIRECTORY}:/share"
+    ports:
+      - 139:139/tcp
+      - 445:445/tcp
+    networks:
+      local:
+        ipv4_address: 10.10.1.5
+    restart: unless-stopped
+
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower
+    environment:
+      TZ: ${TZ}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_NOTIFICATION_SKIP_TITLE: "True"
+      WATCHTOWER_NOTIFICATION_URL: "ntfy://ntfy.${DOMAIN}/Sistemas?title='Watchtower Updates'&tags=arrows_counterclockwise"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      interno: # Tanto faz o ip
+    restart: unless-stopped
+
+networks:
+  local:
+    external: true
+  interno:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1

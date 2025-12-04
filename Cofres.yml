@@ -1,0 +1,113 @@
+# Serviços de Cofres
+
+# Variaveis de ambiente
+
+# DOMAIN=exemplo.com.br
+# TZ=America/Sao_Paulo
+
+# LINK_DB_HOST=10.10.1.50
+# LINK_DB_DATABASE=linkwarden
+# LINK_DB_USER=linkwarden
+# LINK_DB_PASSWORD=linkwarden
+# MEILI_MASTER_KEY=chave_mestra_meili
+# OLLAMA_ENDPOINT=http://10.10.2.110:11434
+# OLLAMA_MODEL=gemma3:4b
+
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    environment:
+      TZ: ${TZ}
+      DOMAIN: "https://cofrinho.${DOMAIN}"
+      WEBSOCKET_ENABLED: "true"
+      ROCKET_PROFILE: "release"
+      ROCKET_ADDRESS: "0.0.0.0"
+      ROCKET_PORT: "80"
+      DEBIAN_FRONTEND: "noninteractive"
+      # SIGNUPS_ALLOWED: "true" # Desativar isso depois
+      # ADMIN_TOKEN: "ADMIN_TOKEN"
+    volumes:
+      - "./data/vaultwarden/data/:/data"
+      - "./data/vaultwarden/config/:/config"
+    # ports:
+    #   - 80:80/udp
+    networks:
+      local:
+        ipv4_address: 10.10.1.20
+    restart: unless-stopped
+    labels:
+      # Traefik Labels
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.vault_not_ssl.rule=Host(`cofrinho.${DOMAIN}`)
+      - traefik.http.routers.vault_not_ssl.entrypoints=web
+      # MIDDLEWARE
+      - traefik.http.middlewares.vault_redirect_ssl.redirectscheme.scheme=https
+      - traefik.http.routers.vault_not_ssl.middlewares=vault_redirect_ssl
+      # ROTA COM SSL
+      - traefik.http.routers.vault.rule=Host(`cofrinho.${DOMAIN}`)
+      - traefik.http.routers.vault.entrypoints=websecure
+      - traefik.http.routers.vault.tls.certresolver=le
+      - traefik.http.routers.vault.service=vault
+      - traefik.http.services.vault.loadbalancer.server.port=80
+      - traefik.http.services.vault.loadbalancer.passhostheader=true
+
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    container_name: linkwarden
+    environment:
+      NEXTAUTH_URL: "https://link.${DOMAIN}/api/v1/auth"
+      NEXTAUTH_SECRET: ${LINK_SECRET}
+      DATABASE_URL: "postgresql://${LINK_DB_USER}:${LINK_DB_PASSWORD}@${LINK_DB_HOST}:5432/${LINK_DB_DATABASE}"
+      # POSTGRES_PASSWORD: "CUSTOM_POSTGRES_PASSWORD" # apenas util se não tiver o URL acima
+      STORAGE_FOLDER: "/data" # necessario se não tiver um S3 storage definido
+      # Configurações MeiliSearch
+      MEILI_HOST: "http://meilisearch:7700"
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      # Configurações IA
+      NEXT_PUBLIC_OLLAMA_ENDPOINT_URL: ${OLLAMA_ENDPOINT}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+    volumes:
+      - ./data/linkwarden/:/data/data
+    # ports:
+    #   - 80:3000
+    networks:
+      local:
+        ipv4_address: 10.10.1.21
+    depends_on:
+      # - postgres não incluido nesse compose
+      - meilisearch
+    restart: always
+    labels:
+      - traefik.enable=true
+      # ROTA SEM SSL
+      - traefik.http.routers.link_not_ssl.rule=Host(`link.${DOMAIN}`)
+      - traefik.http.routers.link_not_ssl.entrypoints=web
+      # MIDDLEWARE
+      - traefik.http.middlewares.link_redirect_ssl.redirectscheme.scheme=https
+      - traefik.http.routers.link_not_ssl.middlewares=link_redirect_ssl
+      # ROTA COM SSL
+      - traefik.http.routers.link.rule=Host(`link.${DOMAIN}`)
+      - traefik.http.routers.link.entrypoints=websecure
+      - traefik.http.routers.link.tls.certresolver=le
+      - traefik.http.routers.link.service=link
+      - traefik.http.services.link.loadbalancer.server.port=3000
+  meilisearch:
+    image: getmeili/meilisearch:v1.25.0 #v1.12.8
+    container_name: meilisearch
+    environment:
+      - MEILI_ENV=production # coloque em "development" se não quiser usar uma chave mestre
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY} #se em produção chave é mandatoria
+      - MEILI_NO_ANALYTICS=true
+    volumes:
+      - ./data/meili:/meili_data
+    networks:
+      local:
+        ipv4_address: 10.10.1.40
+    restart: always
+
+networks:
+  local:
+    external: true
+
