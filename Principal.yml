@@ -153,19 +153,21 @@ services:
     environment:
       TZ: ${TZ}
       WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_NOTIFICATIONS: "shoutrrr"
       WATCHTOWER_NOTIFICATION_SKIP_TITLE: "True"
-      WATCHTOWER_NOTIFICATION_URL: "ntfy://ntfy.${DOMAIN}/Sistemas?title='Watchtower Updates'&tags=arrows_counterclockwise"
+      WATCHTOWER_NOTIFICATION_URL: "ntfy://ntfy.${DOMAIN}/${WATCHTOWER_TOPIC}?title=Watchtower%20Updates&tags=arrows_counterclockwise"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
-      interno: # Tanto faz o ip
+      local:
+        ipv4_address: 10.10.1.6
     restart: unless-stopped
 
 networks:
   local:
     external: true
-  interno:
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
-          gateway: 172.20.0.1
+  # interno:
+  #   ipam:
+  #     config:
+  #       - subnet: 172.20.0.0/24
+  #         gateway: 172.20.0.1

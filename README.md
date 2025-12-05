@@ -71,6 +71,7 @@ Para rodar este projeto, você precisará criar um arquivo `.env` ou configurar 
 | `SB_BROWSABLE` | Se o compartilhamento é navegável (`yes`/`no`). |
 | `SB_READONLY` | Se o compartilhamento é somente leitura (`yes`/`no`). |
 | `SB_GUEST` | Se permite convidado (`yes`/`no`). |
+| `WATCHTOWER_TOPIC` | Topico que será usado para avisar novas atualizações |
 
 ### Admin.yml
 | Variável | Descrição |
