@@ -81,7 +81,7 @@ services:
 
   cloudflared: # Usado como proxy DNS
     container_name: cloudflared-pihole
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.1.2 # A partir da versão 2026.2.0 o cloudflare removeu suporte para o proxy-dns
     command: proxy-dns --port 53 --address 0.0.0.0
     networks:
       local:
@@ -171,3 +171,4 @@ networks:
   #     config:
   #       - subnet: 172.20.0.0/24
   #         gateway: 172.20.0.1
+
