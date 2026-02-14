@@ -79,10 +79,10 @@ services:
         ipv4_address: 10.10.1.2
     restart: unless-stopped
 
-  cloudflared: # Usado como proxy DNS
-    container_name: cloudflared-pihole
-    image: cloudflare/cloudflared:2026.1.2 # A partir da versão 2026.2.0 o cloudflare removeu suporte para o proxy-dns
-    command: proxy-dns --port 53 --address 0.0.0.0
+  dnsproxy: # Proxy para DNS sobre HTTPS
+    container_name: dnsproxy
+    image: adguard/dnsproxy:latest
+    command: -u "sdns://AgcAAAAAAAAABzEuMC4wLjGgENk8mGSlIfMGXMOlIlCcKvq7AVgcrZxtjon911-ep0cg63Ul-I8NlFj4GplQGb_TTLiczclX57DvMV8Q-JdjgRgSZG5zLmNsb3VkZmxhcmUuY29tCi9kbnMtcXVlcnk"
     networks:
       local:
         ipv4_address: 10.10.1.3
@@ -93,21 +93,21 @@ services:
     image: pihole/pihole:latest
     environment:
       TZ: ${TZ}
-      FTLCONF_dns_upstreams: 10.10.1.3 #cloudflared#53
+      FTLCONF_dns_upstreams: 10.10.1.3 #dnsproxy#53
       FTLCONF_webserver_domain: dns.${DOMAIN}
       # FTLCONF_webserver_api_password: "123" # REMOVER
     volumes:
       - "./data/pihole/:/etc/pihole/"
       - "./data/pihole/dnsmasq.d:/etc/dnsmasq.d"
     dns:
-      - 10.10.1.3 #cloudflared:53
+      - 10.10.1.3 #dnsproxy:53
     networks:
       local:
         ipv4_address: 10.10.1.4
     cap_add:
       - NET_ADMIN
     depends_on:
-      - cloudflared
+      - dnsproxy
     restart: unless-stopped
     healthcheck:
       test: dig @10.10.1.4 pi.hole
@@ -171,4 +171,5 @@ networks:
   #     config:
   #       - subnet: 172.20.0.0/24
   #         gateway: 172.20.0.1
+
 
